@@ -1,35 +1,20 @@
-use std::convert::TryFrom;
 use fxhash::FxHashMap;
 use super::Point;
 
-const VOXEL_SIZE: f32 = 0.2;
-const SEARCH_RADIUS: f32 = VOXEL_SIZE;
-
 pub struct VoxelBucket {
     map: FxHashMap<[i16; 3], Vec<Point>>,
-}
-
-fn convert(v: f32) -> Result<i16, ConversionError> {
-    let v = v/VOXEL_SIZE;
-    if std::i16::MIN as f32 <= v && v <= std::i16::MAX as f32 {
-        Ok( v as i16)
-    } else {
-        Err(ConversionError)
-    }
-}
-
-fn convert2key(p: Point) -> Result<[i16; 3], ConversionError> {
-    Ok([convert(p.x)?, convert(p.x)?, convert(p.x)?])
+    radius: f32,
 }
 
 #[derive(Debug)]
 pub struct ConversionError;
 
 impl VoxelBucket {
-    pub fn new(points: &[Point]) -> Result<Self, ConversionError> {
-        let mut s = Self { map: Default::default() };
+    pub fn new(points: &[Point], radius: f32) -> Result<Self, ConversionError> {
+        let mut s = Self { map: Default::default(), radius };
         for &point in points {
-            s.map.entry(convert2key(point)?).or_default().push(point);
+            let key = convert2key(point, radius)?;
+            s.map.entry(key).or_default().push(point);
         }
         Ok(s)
     }
@@ -37,11 +22,11 @@ impl VoxelBucket {
     /// Returns closest point inside the radius if any
     /// and square distance to it
     pub fn search_closest(&self, point: Point) -> Option<(&Point, f32)> {
-        let key = match convert2key(point) {
+        let key = match convert2key(point, self.radius) {
             Ok(k) => k,
             Err(_) => return None,
         };
-        let mut min_dist2 = SEARCH_RADIUS*SEARCH_RADIUS;
+        let mut min_dist2 = self.radius*self.radius;
         let mut closest = None;
         for i in -1..=1 {
             for j in -1..=1 {
@@ -66,4 +51,18 @@ impl VoxelBucket {
         }
         closest.map(|p| (p, min_dist2))
     }
+}
+
+
+fn convert(v: f32, r: f32) -> Result<i16, ConversionError> {
+    let v = v/r;
+    if std::i16::MIN as f32 <= v && v <= std::i16::MAX as f32 {
+        Ok( v as i16)
+    } else {
+        Err(ConversionError)
+    }
+}
+
+fn convert2key(p: Point, r: f32) -> Result<[i16; 3], ConversionError> {
+    Ok([convert(p.x, r)?, convert(p.x, r)?, convert(p.x, r)?])
 }
