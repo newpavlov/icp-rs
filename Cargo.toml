@@ -13,3 +13,7 @@ ouster = { path = "../ouster/" }
 rayon = "1"
 log = "0.4"
 fxhash = "0.2"
+indicatif = { version = "0.13", features = ["with_rayon"] }
+
+[dev-dependencies]
+rand = { version = "0.7", default-features = false }
