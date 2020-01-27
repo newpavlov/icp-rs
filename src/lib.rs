@@ -30,10 +30,12 @@ impl Icp {
         let mut prev_t = t;
         let mut buf = vec![None; scan.len()].into_boxed_slice();
 
+        use rayon::prelude::*;
+
         for _ in 0..self.max_iter {
             //println!("\n\n===========================\nICP iteration: {}", n);
 
-            let mut ref_accum = Point::zeros();
+            /*let mut ref_accum = Point::zeros();
             let mut accum = Point::zeros();
             sum_dist = 0.0;
             corresp = 0;
@@ -50,10 +52,51 @@ impl Icp {
                     None => *buf_ref = None,
                 }
             }
+            */
+
+            struct IterData {
+                ref_accum: Point, accum: Point, sum_dist: f32, corresp: u32,
+            }
+
+            impl Default for IterData {
+                fn default() -> Self {
+                    let z = Point::zeros();
+                    Self { ref_accum: z, accum: z, sum_dist: 0.0, corresp: 0 }
+                }
+            }
+
+            let itd: IterData = scan.par_iter().zip(buf.par_iter_mut())
+                .map(|(&p, buf_ref)| {
+                    let p2 = r*p + t;
+                    match self.vbt.search_closest(&p2) {
+                        Some((p_ref, dist)) => {
+                            *buf_ref = Some(p_ref);
+                            IterData {
+                                sum_dist: dist,
+                                corresp: 1,
+                                ref_accum: *p_ref,
+                                accum: p,
+                            }
+                        }
+                        None => {
+                            *buf_ref = None;
+                            IterData::default()
+                        }
+                    }
+                })
+                .reduce(|| IterData::default(),  |mut a, v| {
+                    a.sum_dist += v.sum_dist;
+                    a.corresp += v.corresp;
+                    a.ref_accum += v.ref_accum;
+                    a.accum += v.accum;
+                    a
+                });
+            sum_dist = itd.sum_dist;
+            corresp = itd.corresp;
 
             let corresp_f32 = corresp as f32;
-            let ref_cm = ref_accum/corresp_f32;
-            let cm = accum/corresp_f32;
+            let ref_cm = itd.ref_accum/corresp_f32;
+            let cm = itd.accum/corresp_f32;
 
             // calculate W
             let mut w = Matrix3::zeros();
@@ -64,6 +107,8 @@ impl Icp {
                 };
                 let ref_p = ref_p - ref_cm;
                 let p = p - cm;
+                //ref_p[2] = 0.0;
+                //p[2] = 0.0;
                 w += ref_p*p.transpose();
             }
 

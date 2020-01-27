@@ -5,9 +5,11 @@ type Point = Vector3<f32>;
 type Rot = Matrix3<f32>;
 type Trans = Vector3<f32>;
 
+static SCANS_PATH: &str = "/media/newpavlov/DATA/ouster_ply/moscow3/";
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let s1 = load_scan(800)?;
-    let mut s2 = load_scan(810)?;
+    let s1 = load_scan(1)?;
+    let mut s2 = load_scan(4015)?;
 
     save_scan("scan1.ply", &s1)?;
     save_scan("scan2_before.ply", &s2)?;
@@ -15,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let icp = icp::Icp::new(&s1, 0.25, 50, 0.0005)?;
     let r = Rot::identity();
     let mut t = Trans::zeros();
-    t[1] = 3.0;
+    //t[1] = 3.0;
 
     let (r, t, _, _) = icp.register(&s2, r, t);
 
@@ -55,7 +57,7 @@ fn load_scan(n: u32) -> io::Result<Vec<Point>> {
     use std::io::Read;
     const PATTERN: &[u8] = b"end_header\n";
 
-    let path = format!("clouds/{}.ply", n);
+    let path = format!("{}{}.ply", SCANS_PATH, n);
     let mut data = Vec::new();
     fs::File::open(path)?.read_to_end(&mut data)?;
     let n = PATTERN.len();

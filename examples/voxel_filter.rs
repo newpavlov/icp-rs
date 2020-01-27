@@ -4,9 +4,9 @@ use fxhash::FxHashMap;
 
 type Point = nalgebra::base::Vector3<f32>;
 
-const VOXEL_SIZE: f32 = 0.05;
+const VOXEL_SIZE: f32 = 0.10;
 const PATTERN: &[u8] = b"end_header\n";
-const FILTER_PERCENTILE: usize = 20;
+//const FILTER_PERCENTILE: usize = 20;
 
 fn process_point(map: &mut FxHashMap<[i32; 3], usize>, p: [f32; 3]) {
     let p = [
@@ -18,11 +18,16 @@ fn process_point(map: &mut FxHashMap<[i32; 3], usize>, p: [f32; 3]) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path_in = "/media/newpavlov/DATA/ouster_ply/accum_all.ply";
-    let path_out = "/media/newpavlov/DATA/ouster_ply/accum_filter.ply";
+    //let path_in = "/media/newpavlov/DATA/ouster_ply/accum_all.ply";
+    //let path_out = "/media/newpavlov/DATA/ouster_ply/accum_filter.ply";
+
+    let path_in = std::env::args().nth(1)
+        .expect("provide path to an input file");
+    let path_out = std::env::args().nth(2)
+        .expect("provide path to an output file");
 
     let mut data = Vec::new();
-    fs::File::open(path_in)?.read_to_end(&mut data)?;
+    fs::File::open(&path_in)?.read_to_end(&mut data)?;
     let n = PATTERN.len();
 
     let mut map = FxHashMap::default();
@@ -53,11 +58,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let count_thresh = counts[(FILTER_PERCENTILE*counts_n)/100];
     println!("count_thresh:  {}", count_thresh);
     */
-    let count_thresh = 5;
+    let count_thresh = 10;
 
 
     let points: Vec<Point> = map.into_iter()
-        .filter(|(_, c)| *c > count_thresh)
+        .filter(|(_, c)| *c >= count_thresh)
         .map(|(p, _)| {
             Point::new(
                 (p[0] as f32)*VOXEL_SIZE,
@@ -67,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect();
 
-    save_scan(path_out, &points)?;
+    save_scan(&path_out, &points)?;
 
     Ok(())
 }
