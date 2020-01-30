@@ -22,6 +22,10 @@ impl Icp {
         Ok(Self { vbt, max_iter, dist_delta })
     }
 
+    pub fn get_points(&self) -> Vec<Point> {
+        self.vbt.get_points()
+    }
+
     pub fn register(
         &self, scan: &[Point], mut r: Rot, mut t: Trans,
     ) -> (Rot, Trans, u32, f32) {

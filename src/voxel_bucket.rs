@@ -62,6 +62,15 @@ impl VoxelBucket {
         }
         closest.map(|p| (p, min_dist2))
     }
+
+    /// Collect stored points into a vector
+    pub fn get_points(&self) -> Vec<Point> {
+        let mut buf = Vec::new();
+        for points in self.map.values() {
+            buf.extend_from_slice(&points);
+        }
+        buf
+    }
 }
 
 fn convert(v: f32, r: f32) -> Result<i16, ConversionError> {
