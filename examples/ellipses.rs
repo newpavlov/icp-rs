@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     save_scan("ellipse1.ply", &s1)?;
     save_scan("ellipse2_before.ply", &s2)?;
 
-    let icp = icp::Icp::new(&s1, 0.5, 25, 0.0)?;
+    let icp = icp::Icp::new(&s1, 0.25, 25, 0.0)?;
     let r = Rot::identity();
     let t = Trans::zeros();
 

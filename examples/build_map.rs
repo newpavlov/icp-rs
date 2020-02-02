@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if ref_scan.len() < MIN_POINTS {
             continue
         }
-        let icp = icp::Icp::new(&ref_scan, 0.20, 50, 0.0005)?;
+        let icp = icp::Icp::new(&ref_scan, 0.25, 50, 0.0005)?;
         let mut r = Matrix3::<f32>::identity();
         let mut t = Vector3::<f32>::zeros();
 

@@ -6,24 +6,89 @@ mod voxel_bucket;
 type Point = nalgebra::base::Vector3<f32>;
 type Rot = Matrix3<f32>;
 type Trans = nalgebra::base::Vector3<f32>;
+type Normal = nalgebra::base::Vector3<f32>;
 
+const NORMALS_THRESH: usize = 10;
 
 pub struct Icp {
     vbt: voxel_bucket::VoxelBucket,
     max_iter: u32,
     dist_delta: f32,
+    normals: Vec<Point>,
+}
+
+fn calc_normal(points: &[Point]) -> Normal {
+    let n = points.len() as f32;
+    let cm: Point = points.iter()
+        .fold(Point::zeros(), |a, p| a + p)/n;
+
+    let cov = points.iter()
+        .map(|p| p - cm)
+        .map(|p| p*p.transpose())
+        .fold(Matrix3::zeros(), |a, v| a + v);
+
+    let svd_res = cov.svd(true, false);
+
+    let u = svd_res.u.unwrap();
+    let sing = svd_res.singular_values;
+    let i = if sing[0] < sing[1] && sing[0] < sing[2] {
+        0
+    } else if sing[1] < sing[0] && sing[1] < sing[2] {
+        1
+    } else {
+        2
+    };
+
+    Normal::new(u[(0, i)], u[(1, i)], u[(2, i)])
 }
 
 impl Icp {
     pub fn new(
-        ref_scan: &[Point], search_radius: f32, max_iter: u32, dist_delta: f32,
+        ref_scan: &[Point], search_radius: f32,
+        max_iter: u32, dist_delta: f32,
     ) -> Result<Self, voxel_bucket::ConversionError> {
         let vbt = voxel_bucket::VoxelBucket::new(ref_scan, search_radius)?;
-        Ok(Self { vbt, max_iter, dist_delta })
+        let normals = vec![Normal::zeros(); ref_scan.len()];
+        Ok(Self { vbt, max_iter, dist_delta, normals })
+    }
+
+    pub fn new_with_normals(
+        ref_scan: &[Point], normals: &[Normal],
+        search_radius: f32, max_iter: u32, dist_delta: f32,
+    ) -> Result<Self, voxel_bucket::ConversionError> {
+        assert_eq!(ref_scan.len(), normals.len());
+        let vbt = voxel_bucket::VoxelBucket::new(ref_scan, search_radius)?;
+        Ok(Self { vbt, max_iter, dist_delta, normals: normals.to_vec() })
     }
 
     pub fn get_points(&self) -> Vec<Point> {
-        self.vbt.get_points()
+        self.vbt.iter_points().map(|&(p, _)| p).collect()
+    }
+
+    pub fn get_points_normals(&self) -> Vec<(Point, Normal)> {
+        self.vbt.iter_points()
+            .map(|&(p, idx)| (p, self.normals[idx as usize]))
+            .collect()
+    }
+
+    pub fn calc_normals(&mut self) {
+        let mut remove_idxs = Vec::new();
+        let mut points_buf = Vec::new();
+        for &(p, idx) in self.vbt.iter_points() {
+            self.vbt
+                .inside_radius(p, |p, _, _| points_buf.push(p))
+                .unwrap();
+            if points_buf.len() >= NORMALS_THRESH {
+                self.normals[idx as usize] = calc_normal(&points_buf);
+            } else {
+                remove_idxs.push(idx);
+            }
+
+            points_buf.clear();
+        }
+        // remove points for which normal vector was not calculated
+        println!("removing: {:?}", remove_idxs.len());
+        self.vbt.remove_points(&remove_idxs);
     }
 
     pub fn register(
@@ -72,13 +137,13 @@ impl Icp {
             let itd: IterData = scan.par_iter().zip(buf.par_iter_mut())
                 .map(|(&p, buf_ref)| {
                     let p2 = r*p + t;
-                    match self.vbt.search_closest(&p2) {
-                        Some((p_ref, dist)) => {
+                    match self.vbt.search_closest(p2) {
+                        Some((p_ref, idx, dist)) => {
                             *buf_ref = Some(p_ref);
                             IterData {
                                 sum_dist: dist,
                                 corresp: 1,
-                                ref_accum: *p_ref,
+                                ref_accum: p_ref,
                                 accum: p,
                             }
                         }
