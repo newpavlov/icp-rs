@@ -8,13 +8,14 @@ const VOXEL_SIZE: f32 = 0.10;
 const PATTERN: &[u8] = b"end_header\n";
 //const FILTER_PERCENTILE: usize = 20;
 
-fn process_point(map: &mut FxHashMap<[i32; 3], usize>, p: [f32; 3]) {
-    let p = [
+fn process_point(map: &mut FxHashMap<[i32; 3], Vec<Point>>, p: [f32; 3]) {
+    let key = [
         (p[0]/VOXEL_SIZE) as i32,
         (p[1]/VOXEL_SIZE) as i32,
         (p[2]/VOXEL_SIZE) as i32,
     ];
-    *(map.entry(p).or_default()) += 1;
+    let p = Point::new(p[0], p[1], p[2]);
+    (map.entry(key).or_default()).push(p);
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -61,14 +62,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let count_thresh = 10;
 
 
-    let points: Vec<Point> = map.into_iter()
-        .filter(|(_, c)| *c >= count_thresh)
-        .map(|(p, _)| {
-            Point::new(
+    let points: Vec<(Point, Point)> = map.into_iter()
+        .filter(|(_, c)| c.len() >= count_thresh)
+        .map(|(p, c)| {
+            let p = Point::new(
                 (p[0] as f32)*VOXEL_SIZE,
                 (p[1] as f32)*VOXEL_SIZE,
                 (p[2] as f32)*VOXEL_SIZE,
-            )
+            );
+            let n = icp::calc_normal(&c);
+            (p, n)
         })
         .collect();
 
@@ -78,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn save_scan(
-    out_path: &str, scan: &[Point],
+    out_path: &str, scan: &[(Point, Point)],
 ) -> std::io::Result<()> {
     use std::io::Write;
     let header = format!("ply\n\
@@ -87,15 +90,21 @@ fn save_scan(
         property float x\n\
         property float y\n\
         property float z\n\
+        property float xn\n\
+        property float yn\n\
+        property float zn\n\
         end_header\n\
     ", scan.len());
     println!("Saving scan with {} points.", scan.len());
     let mut writer = io::BufWriter::new(fs::File::create(out_path)?);
     writer.write_all(header.as_bytes())?;
     for p in scan {
-        writer.write_all(&p[0].to_le_bytes())?;
-        writer.write_all(&p[1].to_le_bytes())?;
-        writer.write_all(&p[2].to_le_bytes())?;
+        writer.write_all(&p.0[0].to_le_bytes())?;
+        writer.write_all(&p.0[1].to_le_bytes())?;
+        writer.write_all(&p.0[2].to_le_bytes())?;
+        writer.write_all(&p.1[0].to_le_bytes())?;
+        writer.write_all(&p.1[1].to_le_bytes())?;
+        writer.write_all(&p.1[2].to_le_bytes())?;
     }
     Ok(())
 }

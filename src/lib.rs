@@ -20,7 +20,7 @@ pub struct Icp {
     normals: Vec<Point>,
 }
 
-fn calc_normal(points: &[Point]) -> Normal {
+pub fn calc_normal(points: &[Point]) -> Normal {
     let n = points.len() as f32;
     let cm: Point = points.iter()
         .fold(Point::zeros(), |a, p| a + p)/n;
@@ -175,6 +175,11 @@ impl Icp {
                 let p1 = n.x*d.x + n.y*d.y + n.z*d.z;
                 let p2 = n.x*s.x + n.y*s.y + n.z*s.z;
                 b.push(p1 - p2);
+            }
+
+            // TODO: add error
+            if corresp < 100 {
+                return (r, t, 0, 0.0);
             }
 
             let a = Matrix6N::from_row_slice(&a);
