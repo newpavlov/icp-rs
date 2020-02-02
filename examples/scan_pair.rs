@@ -9,17 +9,19 @@ static SCANS_PATH: &str = "/media/newpavlov/DATA/ouster_ply/moscow3/";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let s1 = load_scan(1)?;
-    let mut s2 = load_scan(4015)?;
+    let mut s2 = load_scan(3910)?; // 4015
 
     save_scan("scan1.ply", &s1)?;
     save_scan("scan2_before.ply", &s2)?;
 
-    let icp = icp::Icp::new(&s1, 0.25, 50, 0.0005)?;
+    let mut icp = icp::Icp::new(&s1, 0.25, 50, 0.0005)?;
+    icp.calc_normals();
     let r = Rot::identity();
     let mut t = Trans::zeros();
-    //t[1] = 3.0;
+    t[1] = -2.5;
 
     let (r, t, _, _) = icp.register(&s2, r, t);
+    println!("{:?}", t);
 
     for p in s2.iter_mut() {
         *p = r*(*p) + t;

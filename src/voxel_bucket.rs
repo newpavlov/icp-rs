@@ -28,6 +28,7 @@ impl VoxelBucket {
             let val = (point, idx as u32);
             map.entry(key).or_default().push(val);
         }
+        map.shrink_to_fit();
         Ok(Self { map, radius })
     }
 
@@ -66,34 +67,24 @@ impl VoxelBucket {
     /// and square distance to it
     pub fn search_closest(&self, p: Point) -> Option<(Point, u32, f32)> {
         let r = self.radius;
-        let key = match convert2key(p, r) {
-            Ok(k) => k,
-            Err(_) => return None,
-        };
         let mut min_dist2 = r*r;
         let mut res = None;
 
-        self.inside_radius(p, |p2, idx, d2| {
+        let r = self.inside_radius(p, |p2, idx, d2| {
             if d2 < min_dist2 {
                 min_dist2 = d2;
                 res = Some((p2, idx, d2));
             }
         });
+        if r.is_err() {
+            return None;
+        }
 
         res
     }
 
     pub fn iter_points(&self) -> impl Iterator<Item=&(Point, u32)> {
         self.map.values().flat_map(|v| v.iter())
-    }
-
-    /// Collect stored points into a vector
-    pub fn get_points(&self) -> Vec<Point> {
-        let mut buf = Vec::new();
-        for points in self.map.values() {
-            buf.extend(points.iter().map(|p| p.0));
-        }
-        buf
     }
 
     pub fn remove_points(&mut self, idxs: &[u32]) {

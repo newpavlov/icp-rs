@@ -42,21 +42,22 @@ struct IcpResultEntry {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    const START_SCAN: u32 = 1;
-    const END_SCAN: u32 = 4015;
+    const START_SCAN: u32 = 2;
+    const END_SCAN: u32 = 3392;
     const SCANS: u32 = END_SCAN - START_SCAN + 1;
-    const KF_DIST_THRESH: f32 = 0.0;
+    const KF_DIST_THRESH: f32 = 2.0;
 
     let s0 = load_scan(START_SCAN)?;
 
     let mut accum_cloud = Vec::with_capacity(30_000*(SCANS as usize));
     accum_cloud.extend_from_slice(&s0);
 
-    let mut kf_idx = START_SCAN;    
+    let mut kf_idx = START_SCAN;
     let mut kf_r = Rot::identity();
     let mut kf_t = Trans::zeros();
     let mut kf_icp = icp::Icp::new(&s0, 0.25, 50, 0.0005)?;
-    let out_path = "/media/newpavlov/DATA/ouster_ply/moscow3_kf_results.bin";
+    kf_icp.calc_normals();
+    let out_path = "/media/newpavlov/DATA/ouster_ply/skolkovo_kf_results.bin";
     let mut f = io::BufWriter::new(fs::File::create(out_path)?);
     let mut r = kf_r;
     let mut t = kf_t;
@@ -90,6 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             r = Rot::identity();
             t = Trans::zeros();
             kf_icp = icp::Icp::new(&scan, 0.25, 50, 0.0005)?;
+            kf_icp.calc_normals();
         }
 
         for p in scan.iter_mut() {
@@ -98,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         accum_cloud.extend_from_slice(&scan);
     }
 
-    save_scan("/media/newpavlov/DATA/ouster_ply/moscow3_accum_all.ply", &accum_cloud)?;
+    save_scan("/media/newpavlov/DATA/ouster_ply/skolkovo_accum_all.ply", &accum_cloud)?;
 
     Ok(())
 }
@@ -131,7 +133,7 @@ fn load_scan(n: u32) -> io::Result<Vec<Point>> {
     use std::io::Read;
     const PATTERN: &[u8] = b"end_header\n";
 
-    let path = format!("/media/newpavlov/DATA/ouster_ply/moscow3/{}.ply", n);
+    let path = format!("/media/newpavlov/DATA/ouster_ply/skolkovo/{}.ply", n);
     let mut data = Vec::new();
     fs::File::open(path)?.read_to_end(&mut data)?;
     let n = PATTERN.len();

@@ -6,12 +6,17 @@ type Rot = Matrix3<f32>;
 type Trans = Vector3<f32>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (s1, mut s2) = get_ellipses();
+    let (s1, _) = get_ellipses();
+
+    let mut s2: Vec<Point> = s1.iter()
+      .map(|&p| p + Point::new(0.1, 0.0, 0.0))
+      .collect();
 
     save_scan("ellipse1.ply", &s1)?;
     save_scan("ellipse2_before.ply", &s2)?;
 
-    let icp = icp::Icp::new(&s1, 0.25, 25, 0.0)?;
+    let mut icp = icp::Icp::new(&s1, 1.0, 5, 0.0)?;
+    icp.calc_normals();
     let r = Rot::identity();
     let t = Trans::zeros();
 

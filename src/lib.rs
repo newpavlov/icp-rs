@@ -1,5 +1,6 @@
 //use num_traits::identities::Zero;
-use nalgebra::base::Matrix3;
+use nalgebra::base::{Matrix3, MatrixMN, DVector};
+use nalgebra::base::dimension::{U6, Dynamic};
 
 mod voxel_bucket;
 
@@ -7,6 +8,8 @@ type Point = nalgebra::base::Vector3<f32>;
 type Rot = Matrix3<f32>;
 type Trans = nalgebra::base::Vector3<f32>;
 type Normal = nalgebra::base::Vector3<f32>;
+
+type Matrix6N = MatrixMN<f32, Dynamic, U6>;
 
 const NORMALS_THRESH: usize = 10;
 
@@ -87,7 +90,7 @@ impl Icp {
             points_buf.clear();
         }
         // remove points for which normal vector was not calculated
-        println!("removing: {:?}", remove_idxs.len());
+        //println!("removing: {:?}", remove_idxs.len());
         self.vbt.remove_points(&remove_idxs);
     }
 
@@ -96,113 +99,117 @@ impl Icp {
     ) -> (Rot, Trans, u32, f32) {
         let mut corresp = 0u32;
         let mut sum_dist = 0.0;
-        let mut prev_t = t;
-        let mut buf = vec![None; scan.len()].into_boxed_slice();
 
-        use rayon::prelude::*;
-
+        let mut a = Vec::new();
+        let mut b = Vec::new();
         for _ in 0..self.max_iter {
-            //println!("\n\n===========================\nICP iteration: {}", n);
+            /*
+            use rayon::prelude::*;
 
-            /*let mut ref_accum = Point::zeros();
-            let mut accum = Point::zeros();
-            sum_dist = 0.0;
-            corresp = 0;
-            for (&p, buf_ref) in scan.iter().zip(buf.iter_mut()) {
-                let p2 = r*p + t;
-                match self.vbt.search_closest(&p2) {
-                    Some((p_ref, dist)) => {
-                        *buf_ref = Some(p_ref);
-                        sum_dist += dist;
-                        corresp += 1;
-                        ref_accum += *p_ref;
-                        accum += p;
-                    }
-                    None => *buf_ref = None,
-                }
+            #[derive(Default)]
+            struct IterData {
+                a: Vec<f32>, b: Vec<f32>,
+                sum_dist: f32, corresp: u32,
             }
+
+            let res = scan.par_iter()
+                .fold(|| IterData::default(), |mut accum, s| {
+                    let s = r*s + t;
+                    let (d, idx, dist) = match self.vbt.search_closest(s) {
+                        Some(v) => v,
+                        None => return accum,
+                    };
+
+                    let n = self.normals[idx as usize];
+                    accum.sum_dist += dist;
+                    accum.corresp += 1;
+
+                    accum.a.extend_from_slice(&[
+                        n.z*s.y - n.y*s.z,
+                        n.x*s.z - n.z*s.x,
+                        n.y*s.x - n.x*s.y,
+                        n.x,
+                        n.y,
+                        n.z,
+                    ]);
+                    let p1 = n.x*d.x + n.y*d.y + n.z*d.z;
+                    let p2 = n.x*s.x + n.y*s.y + n.z*s.z;
+                    accum.b.push(p1 - p2);
+                    accum
+                })
+                .reduce(|| IterData::default(), |mut accum, val| {
+                    accum.sum_dist += val.sum_dist;
+                    accum.corresp += val.corresp;
+                    accum.a.extend_from_slice(&val.a);
+                    accum.b.extend_from_slice(&val.b);
+                    accum
+                });
+
+            sum_dist = res.sum_dist;
+            corresp = res.corresp;
             */
 
-            struct IterData {
-                ref_accum: Point, accum: Point, sum_dist: f32, corresp: u32,
-            }
-
-            impl Default for IterData {
-                fn default() -> Self {
-                    let z = Point::zeros();
-                    Self { ref_accum: z, accum: z, sum_dist: 0.0, corresp: 0 }
-                }
-            }
-
-            let itd: IterData = scan.par_iter().zip(buf.par_iter_mut())
-                .map(|(&p, buf_ref)| {
-                    let p2 = r*p + t;
-                    match self.vbt.search_closest(p2) {
-                        Some((p_ref, idx, dist)) => {
-                            *buf_ref = Some(p_ref);
-                            IterData {
-                                sum_dist: dist,
-                                corresp: 1,
-                                ref_accum: p_ref,
-                                accum: p,
-                            }
-                        }
-                        None => {
-                            *buf_ref = None;
-                            IterData::default()
-                        }
-                    }
-                })
-                .reduce(|| IterData::default(),  |mut a, v| {
-                    a.sum_dist += v.sum_dist;
-                    a.corresp += v.corresp;
-                    a.ref_accum += v.ref_accum;
-                    a.accum += v.accum;
-                    a
-                });
-            sum_dist = itd.sum_dist;
-            corresp = itd.corresp;
-
-            let corresp_f32 = corresp as f32;
-            let ref_cm = itd.ref_accum/corresp_f32;
-            let cm = itd.accum/corresp_f32;
-
-            // calculate W
-            let mut w = Matrix3::zeros();
-            for (&ref_p, p) in buf.iter().zip(scan.iter()) {
-                let ref_p = match ref_p {
+            sum_dist = 0.0;
+            corresp = 0;
+            a.clear();
+            b.clear();
+            for &s in scan.iter() {
+                let s = r*s + t;
+                let (d, idx, dist) = match self.vbt.search_closest(s) {
                     Some(v) => v,
                     None => continue,
                 };
-                let ref_p = ref_p - ref_cm;
-                let p = p - cm;
-                //ref_p[2] = 0.0;
-                //p[2] = 0.0;
-                w += ref_p*p.transpose();
+
+                let n = self.normals[idx as usize];
+                sum_dist += dist;
+                corresp += 1;
+
+                a.extend_from_slice(&[
+                    n.z*s.y - n.y*s.z,
+                    n.x*s.z - n.z*s.x,
+                    n.y*s.x - n.x*s.y,
+                    n.x,
+                    n.y,
+                    n.z,
+                ]);
+                let p1 = n.x*d.x + n.y*d.y + n.z*d.z;
+                let p2 = n.x*s.x + n.y*s.y + n.z*s.z;
+                b.push(p1 - p2);
             }
 
-            let svd_res = w.svd(true, true);
-            let u = svd_res.u.unwrap();
-            let v_t = svd_res.v_t.unwrap();
+            let a = Matrix6N::from_row_slice(&a);
+            let b = DVector::from_row_slice(&b);
 
-            r = u*v_t;
-            //println!("new_r: {}", new_r);
-            let new_r_det = r.determinant();
-            //println!("new_r_det: {}", new_r_det);
-            if new_r_det < 0.0 {
-                let mut m = Rot::identity();
-                m.m33 = -1.;
-                r = u*m*v_t;
-            }
-            t = ref_cm - r*cm;
+            let x = nalgebra::linalg::SVD::new(a, true, true)
+                .solve(&b, 1e-10)
+                .unwrap();
 
+            let new_t = Trans::new(x[3], x[4], x[5]);
+            let (sin_a, cos_a) = x[0].sin_cos();
+            let (sin_b, cos_b) = x[1].sin_cos();
+            let (sin_y, cos_y) = x[2].sin_cos();
+            let new_r = Rot::new(
+                cos_y*cos_b,
+                -sin_y*cos_a + cos_y*sin_b*sin_a,
+                sin_y*sin_a + cos_y*sin_b*cos_a,
+                sin_y*cos_b,
+                cos_y*cos_a + sin_y*sin_b*sin_a,
+                -cos_y*sin_a + sin_y*sin_b*cos_a,
+                -sin_b,
+                cos_b*sin_a,
+                cos_b*cos_a,
+            );
+
+            let prev_t = t;
+            t += r*new_t;
+            r = r*new_r;
             let delta = (t - prev_t).norm();
-            prev_t = t;
+
+            //println!("{:?}", sum_dist/(corresp as f32));
             /*println!(
                 "start error: {}\ncorresp: {}\nt_delta: {}\nr: {}t: {}",
-                sum_dist/corresp_f32, corresp, delta, r, t
-            );
-            */
+                sum_dist/(corresp as f32), corresp, delta, r, t
+            );*/
             if delta < self.dist_delta {
                 break;
             }
