@@ -19,7 +19,7 @@ const COUNT_THRESH: usize = 15;
 
 fn voxel_filter(points: &[Point]) -> Vec<Point> {
     let mut map = PointsMap::default();
-    map.reserve(1 << 26);
+    map.reserve(1 << 10);
     let bar = ProgressBar::new(points.len() as u64);
     bar.set_draw_delta((points.len() as u64)/100);
     bar.set_style(ProgressStyle::default_bar().template(PBAR_TEMPLATE));
@@ -75,10 +75,10 @@ fn main() -> Result<(), DynError> {
     about = "Assemble scans into map using provided trajectory")
 ]
 pub struct Cli {
-    #[structopt(default_value = "15")]
+    #[structopt(short = "t", default_value = "15")]
     /// Voxel filter threshold
     pub voxel_thresh: usize,
-    #[structopt(default_value = "0.1")]
+    #[structopt(short = "s", default_value = "0.1")]
     /// Map voxel size
     pub voxel_size: f32,
     #[structopt(short = "o", default_value = "map.ply")]
@@ -113,8 +113,23 @@ fn save_scan(
 }
 
 fn load_rt(path: &Path) -> Result<Vec<(Rotation, Translation)>, DynError> {
-    BufReader::new(fs::File::open(path)?);
-    panic!();
+    use std::io::BufRead;
+    let r = BufReader::new(fs::File::open(path)?);
+    let mut res = Vec::new();
+    for line in r.lines() {
+        let r = line?
+            .split(',')
+            .map(|s| s.parse())
+            .collect::<Result<Vec<f32>, std::num::ParseFloatError>>()?;
+        if r.len() != 6 {
+            Err("wrong number of columns in the trajectory file")?;
+        }
+        res.push((
+            Rotation::from_euler_angles(r[3], r[4], r[5]),
+            Translation::new(r[0], r[1], r[2]),
+        ));
+    }
+    Ok(res)
 }
 
 fn load_scans(dir: &Path, rt: &[(Rotation, Translation)]) -> Result<Vec<Point>, DynError> {
