@@ -7,13 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-kdtree = "0.6"
 nalgebra = "0.19"
-ouster = { path = "../ouster/" }
-rayon = "1"
-log = "0.4"
 fxhash = "0.2"
-indicatif = { version = "0.13", features = ["with_rayon"] }
 
 [dev-dependencies]
-rand = { version = "0.7", default-features = false }
+structopt = { version = "0.3", default-features = false }
+indicatif = "0.15"
+smallvec = "1.4.2"

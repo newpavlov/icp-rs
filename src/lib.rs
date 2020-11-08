@@ -1,32 +1,34 @@
 //use num_traits::identities::Zero;
-use nalgebra::base::{Matrix3, MatrixMN, DVector};
+use nalgebra::base::{Vector3, Unit, Matrix3, MatrixMN, DVector};
+use nalgebra::geometry::{Rotation3, Translation3, Point3};
 use nalgebra::base::dimension::{U6, Dynamic};
+use std::iter::ExactSizeIterator;
 
 mod voxel_bucket;
 
-type Point = nalgebra::base::Vector3<f32>;
-type Rot = Matrix3<f32>;
-type Trans = nalgebra::base::Vector3<f32>;
-type Normal = nalgebra::base::Vector3<f32>;
-
 type Matrix6N = MatrixMN<f32, Dynamic, U6>;
+pub type Normal = Unit<Vector3<f32>>;
+pub type Rotation = Rotation3<f32>;
+pub type Translation = Translation3<f32>;
+pub type Point = Point3<f32>;
 
-const NORMALS_THRESH: usize = 10;
+const NORMALS_THRESH: usize = 5;
 
 pub struct Icp {
     vbt: voxel_bucket::VoxelBucket,
     max_iter: u32,
     dist_delta: f32,
-    normals: Vec<Point>,
+    normals: Vec<Normal>,
 }
 
-pub fn calc_normal(points: &[Point]) -> Normal {
+pub fn calc_normal(points: impl Iterator<Item=Point> + ExactSizeIterator + Clone) -> Normal {
     let n = points.len() as f32;
-    let cm: Point = points.iter()
-        .fold(Point::zeros(), |a, p| a + p)/n;
+    let cm: Vector3<f32> = points
+        .clone()
+        .fold(Vector3::zeros(), |a, p| a + p.coords)/n;
 
-    let cov = points.iter()
-        .map(|p| p - cm)
+    let cov = points
+        .map(|p| p.coords - cm)
         .map(|p| p*p.transpose())
         .fold(Matrix3::zeros(), |a, v| a + v);
 
@@ -42,7 +44,7 @@ pub fn calc_normal(points: &[Point]) -> Normal {
         2
     };
 
-    Normal::new(u[(0, i)], u[(1, i)], u[(2, i)])
+    Normal::new_normalize(Vector3::new(u[(0, i)], u[(1, i)], u[(2, i)]))
 }
 
 impl Icp {
@@ -51,8 +53,11 @@ impl Icp {
         max_iter: u32, dist_delta: f32,
     ) -> Result<Self, voxel_bucket::ConversionError> {
         let vbt = voxel_bucket::VoxelBucket::new(ref_scan, search_radius)?;
-        let normals = vec![Normal::zeros(); ref_scan.len()];
-        Ok(Self { vbt, max_iter, dist_delta, normals })
+        let dn = Normal::new_normalize(Vector3::new(1.0, 0.0, 0.0));
+        let normals = vec![dn; ref_scan.len()];
+        let mut s = Self { vbt, max_iter, dist_delta, normals };
+        s.calc_normals();
+        return Ok(s)
     }
 
     pub fn new_with_normals(
@@ -82,7 +87,7 @@ impl Icp {
                 .inside_radius(p, |p, _, _| points_buf.push(p))
                 .unwrap();
             if points_buf.len() >= NORMALS_THRESH {
-                self.normals[idx as usize] = calc_normal(&points_buf);
+                self.normals[idx as usize] = calc_normal(points_buf.iter().cloned());
             } else {
                 remove_idxs.push(idx);
             }
@@ -90,71 +95,24 @@ impl Icp {
             points_buf.clear();
         }
         // remove points for which normal vector was not calculated
-        //println!("removing: {:?}", remove_idxs.len());
         self.vbt.remove_points(&remove_idxs);
     }
 
     pub fn register(
-        &self, scan: &[Point], mut r: Rot, mut t: Trans,
-    ) -> (Rot, Trans, u32, f32) {
+        &self, scan: &[Point], mut r: Rotation, mut t: Translation,
+    ) -> (Rotation, Translation, u32, f32) {
         let mut corresp = 0u32;
         let mut sum_dist = 0.0;
 
         let mut a = Vec::new();
         let mut b = Vec::new();
         for _ in 0..self.max_iter {
-            /*
-            use rayon::prelude::*;
-
-            #[derive(Default)]
-            struct IterData {
-                a: Vec<f32>, b: Vec<f32>,
-                sum_dist: f32, corresp: u32,
-            }
-
-            let res = scan.par_iter()
-                .fold(|| IterData::default(), |mut accum, s| {
-                    let s = r*s + t;
-                    let (d, idx, dist) = match self.vbt.search_closest(s) {
-                        Some(v) => v,
-                        None => return accum,
-                    };
-
-                    let n = self.normals[idx as usize];
-                    accum.sum_dist += dist;
-                    accum.corresp += 1;
-
-                    accum.a.extend_from_slice(&[
-                        n.z*s.y - n.y*s.z,
-                        n.x*s.z - n.z*s.x,
-                        n.y*s.x - n.x*s.y,
-                        n.x,
-                        n.y,
-                        n.z,
-                    ]);
-                    let p1 = n.x*d.x + n.y*d.y + n.z*d.z;
-                    let p2 = n.x*s.x + n.y*s.y + n.z*s.z;
-                    accum.b.push(p1 - p2);
-                    accum
-                })
-                .reduce(|| IterData::default(), |mut accum, val| {
-                    accum.sum_dist += val.sum_dist;
-                    accum.corresp += val.corresp;
-                    accum.a.extend_from_slice(&val.a);
-                    accum.b.extend_from_slice(&val.b);
-                    accum
-                });
-
-            sum_dist = res.sum_dist;
-            corresp = res.corresp;
-            */
-
             sum_dist = 0.0;
             corresp = 0;
             a.clear();
             b.clear();
             for &s in scan.iter() {
-                let s = r*s + t;
+                let s = t*r*s;
                 let (d, idx, dist) = match self.vbt.search_closest(s) {
                     Some(v) => v,
                     None => continue,
@@ -176,6 +134,8 @@ impl Icp {
                 let p2 = n.x*s.x + n.y*s.y + n.z*s.z;
                 b.push(p1 - p2);
             }
+            sum_dist /= a.len() as f32;
+
 
             // TODO: add error
             if corresp < 100 {
@@ -185,36 +145,17 @@ impl Icp {
             let a = Matrix6N::from_row_slice(&a);
             let b = DVector::from_row_slice(&b);
 
-            let x = nalgebra::linalg::SVD::new(a, true, true)
+            let res = nalgebra::linalg::SVD::new(a, true, true)
                 .solve(&b, 1e-10)
                 .unwrap();
 
-            let new_t = Trans::new(x[3], x[4], x[5]);
-            let (sin_a, cos_a) = x[0].sin_cos();
-            let (sin_b, cos_b) = x[1].sin_cos();
-            let (sin_y, cos_y) = x[2].sin_cos();
-            let new_r = Rot::new(
-                cos_y*cos_b,
-                -sin_y*cos_a + cos_y*sin_b*sin_a,
-                sin_y*sin_a + cos_y*sin_b*cos_a,
-                sin_y*cos_b,
-                cos_y*cos_a + sin_y*sin_b*sin_a,
-                -cos_y*sin_a + sin_y*sin_b*cos_a,
-                -sin_b,
-                cos_b*sin_a,
-                cos_b*cos_a,
-            );
+            let new_t = Translation::new(res[3], res[4], res[5]);
+            let new_r = Rotation::from_euler_angles(res[0], res[1], res[2]);
 
-            let prev_t = t;
-            t += r*new_t;
-            r = r*new_r;
-            let delta = (t - prev_t).norm();
+            t = Translation::from(new_r*t.vector + new_t.vector);
+            r = new_r*r;
+            let delta = new_t.vector.norm();
 
-            //println!("{:?}", sum_dist/(corresp as f32));
-            /*println!(
-                "start error: {}\ncorresp: {}\nt_delta: {}\nr: {}t: {}",
-                sum_dist/(corresp as f32), corresp, delta, r, t
-            );*/
             if delta < self.dist_delta {
                 break;
             }
